@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Panel - Geetham e-Exam</title>
+    <link rel="icon" type="image/jpeg" href="/geetham.jpg">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8f9fa; margin: 0; padding: 30px; }
+        .container { max-width: 1200px; margin: auto; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .logo { max-height: 80px; }
+        h1, h3, h4, h5 { color: #0056b3; }
+        .admin-panel { display: flex; gap: 30px; align-items: flex-start; }
+        .quiz-list { width: 300px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); align-self: flex-start; }
+        .quiz-editor { flex-grow: 1; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);overflow-y: auto;}
+        .quiz-list-item { padding: 15px; margin-bottom: 10px; border-radius: 6px; cursor: pointer; border: 1px solid #ddd; }
+        .quiz-list-item.active { background-color: #e7f3ff; border-left: 4px solid #007bff; font-weight: bold; }
+        label { font-weight: 600; color: #333; margin-top: 15px; display: block; }
+        input, select, textarea { width: 100%; padding: 10px; margin-top: 5px; box-sizing: border-box; font-size: 15px; border-radius: 5px; border: 1px solid #ccc; }
+        button { padding: 12px 20px; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 5px; font-size: 16px; margin-top: 10px; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        .btn-save { background-color: #28a745; } .btn-add { background-color: #17a2b8; } .btn-remove { background-color: #dc3545; padding: 5px 10px; font-size: 12px; }
+        .btn-delete-quiz { background-color: #dc3545; } .btn-pdf { background-color: #ffc107; color: #212529; }
+        .question-container, .subject-container, .feature-box { border: 1px solid #e9ecef; padding: 15px; margin-top: 15px; border-radius: 5px; background-color: #fdfdff; }
+        .flex-row { display:flex; align-items:center; gap:10px; flex-wrap: wrap; }
+        .option-group { margin-top: 10px; padding: 10px; border: 1px dashed #eee; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="/geetham.jpg" alt="Geetham Institute Logo" class="logo">
+            <h1>Exam Admin Panel</h1>
+        </div>
+        <div id="password-prompt">
+            <input type="password" id="admin-password" placeholder="Enter Admin Password">
+            <button id="login-btn">Login</button>
+        </div>
+        <div id="admin-panel" class="admin-panel" style="display:none;">
+            <div class="quiz-list" id="quiz-list-panel"></div>
+            <div class="quiz-editor" id="quiz-editor-panel"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script>
+        let quizzesData = [];
+        let selectedQuizIndex = 0;
+        let cameraStream = null;
+
+        // --- AUTHENTICATION & INITIALIZATION ---
+        document.getElementById('login-btn').addEventListener('click', login);
+        async function login() {
+            const password = document.getElementById('admin-password').value;
+            try {
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                if (!response.ok) throw new Error('Login failed');
+                const { accessToken } = await response.json();
+                localStorage.setItem('adminToken', accessToken);
+                document.getElementById('password-prompt').style.display = 'none';
+                document.getElementById('admin-panel').style.display = 'flex';
+                await loadQuizzes();
+            } catch (error) { alert('Incorrect password or server error.'); }
+        }
+
+        async function loadQuizzes() {
+            try {
+                const response = await fetch('/get-quizzes');
+                if (!response.ok) throw new Error('Could not fetch quizzes');
+                quizzesData = await response.json();
+                renderQuizList();
+                renderQuizEditor();
+            } catch (error) { alert("Could not load quiz data from the server."); }
+        }
+
+        // --- CORE UI RENDERING FUNCTIONS ---
+        function renderQuizList() {
+            const listPanel = document.getElementById('quiz-list-panel');
+            listPanel.innerHTML = '<h3>All Exams</h3>';
+            quizzesData.forEach((quiz, index) => {
+                const item = document.createElement('div');
+                item.className = 'quiz-list-item' + (index === selectedQuizIndex ? ' active' : '');
+                item.textContent = quiz.title;
+                item.addEventListener('click', () => { selectedQuizIndex = index; renderQuizList(); renderQuizEditor(); });
+                listPanel.appendChild(item);
+            });
+            const addBtn = document.createElement('button');
+            addBtn.className = 'btn-add';
+            addBtn.textContent = 'Add New Exam';
+            addBtn.onclick = addQuiz;
+            listPanel.appendChild(addBtn);
+        }
+
+        function renderQuizEditor() {
+            const editor = document.getElementById('quiz-editor-panel');
+            const quiz = quizzesData[selectedQuizIndex];
+            if (!quiz) { editor.innerHTML = '<h3>Select an exam to edit or add a new one.</h3>'; return; }
+
+            editor.innerHTML = `
+                <h3>Editing: ${quiz.title}</h3>
+                
+                <div id="image-to-quiz" class="feature-box">
+                    <h4>Generate from Question Paper (Image/Camera)</h4>
+                    <p>Create a full subject by uploading or taking a picture of a question paper.</p>
+                    <input type="file" id="image-upload" accept="image/*,application/pdf">
+                    <button id="generate-from-file-btn" class="btn-add">Generate from File</button>
+                    <button id="use-camera-btn" class="btn-add">Use Camera</button>
+                    <video id="camera-preview" style="width:100%; max-width: 400px; display:none; margin-top:10px;"></video>
+                    <button id="capture-btn" style="display:none;" class="btn-save">Capture & Generate</button>
+                </div>
+
+                <div id="quiz-details"></div>
+                <div id="subjects-details"></div>
+                <button id="btn-add-subject" class="btn-add">Add Subject</button>
+                <div style="margin-top: 20px; display:flex; gap:10px; flex-wrap: wrap;">
+                    <button id="btn-save-quiz" class="btn-save">Save This Exam</button>
+                    <button id="btn-delete-quiz" class="btn-delete-quiz">Delete This Exam</button>
+                    <button id="btn-generate-pdf" class="btn-pdf">Download Question Paper</button>
+                </div>`;
+            
+            document.getElementById('generate-from-file-btn').onclick = generateFromImage;
+            document.getElementById('use-camera-btn').onclick = startCamera;
+            document.getElementById('capture-btn').onclick = captureAndGenerate;
+            document.getElementById('btn-add-subject').onclick = addSubject;
+            document.getElementById('btn-save-quiz').onclick = saveQuiz;
+            document.getElementById('btn-delete-quiz').onclick = deleteQuiz;
+            document.getElementById('btn-generate-pdf').onclick = generatePDF;
+            
+            renderQuizDetails(quiz);
+            renderSubjects(quiz.subjects);
+        }
+
+        function renderQuizDetails(quiz) {
+            document.getElementById('quiz-details').innerHTML = `
+                <label>Title:</label><input type="text" id="quiz-title" value="${quiz.title || ''}">
+                <label>Time Limit (minutes):</label><input type="number" id="quiz-time" value="${quiz.timeLimit || 180}">
+                <label>Password:</label><input type="password" id="quiz-password" value="${quiz.password || ''}">
+                <label>Marks Mode:</label>
+                <select id="quiz-marks-mode">
+                    <option value="uniform" ${quiz.marksMode !== "custom" ? "selected" : ""}>Uniform for all</option>
+                    <option value="custom" ${quiz.marksMode === "custom" ? "selected" : ""}>Custom per question</option>
+                </select>
+                <div id="marks-settings-container"></div>`;
+            
+            document.getElementById('quiz-marks-mode').onchange = () => {
+                updateQuizObjectFromUI();
+                quizzesData[selectedQuizIndex].marksMode = document.getElementById('quiz-marks-mode').value;
+                renderQuizEditor();
+            };
+            renderMarksSettings();
+        }
+
+        function renderMarksSettings() {
+            const quiz = quizzesData[selectedQuizIndex];
+            const container = document.getElementById('marks-settings-container');
+            if (quiz.marksMode === 'custom') {
+                container.innerHTML = `<p style="font-size:0.9rem; color:#6c757d;">Custom marks are set for each question individually.</p>`;
+            } else {
+                container.innerHTML = `
+                    <label>Marks for Correct Answer:</label>
+                    <input type="number" id="quiz-correct-marks" value="${quiz.correctMarks ?? 1}">
+                    <label>Marks for Incorrect Answer:</label>
+                    <input type="number" id="quiz-wrong-marks" value="${quiz.wrongMarks ?? 0}" step="0.25">`;
+            }
+        }
+        
+        function renderSubjects(subjects = {}) {
+            const container = document.getElementById('subjects-details');
+            container.innerHTML = '<h4>Subjects & Questions</h4>';
+            Object.keys(subjects).forEach(subjectName => {
+                const subjectDiv = document.createElement('div');
+                subjectDiv.className = 'subject-container';
+                subjectDiv.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <label style="margin-top:0;">Subject Name:</label>
+                        <button class="btn-remove remove-subject-btn" style="margin-top:0;">Remove Subject</button>
+                    </div>
+                    <input type="text" class="subject-name" value="${subjectName}">
+                    <div class="feature-box">
+                        <h5>Generate Questions from In-built Library</h5>
+                        <input type="text" class="ai-topic" placeholder="Enter topic to find in library (e.g., Thermodynamics)">
+                        <div class="flex-row">
+                             <select class="ai-question-type">
+                                <option value="multiple-choice" selected>Multiple-Choice</option>
+                                <option value="fill-in-the-blank">Fill-in-the-Blanks</option>
+                            </select>
+                            <select class="ai-difficulty">
+                                <option value="Basic">Basic</option>
+                                <option value="Moderate" selected>Moderate</option>
+                                <option value="Advanced">Advanced</option>
+                            </select>
+                            <input type="number" class="ai-num-questions" value="5" style="width:80px">
+                            <button class="btn-add ai-generate-btn">Generate</button>
+                        </div>
+                    </div>
+                    <div class="questions-list"></div>
+                    <button class="btn-add add-question-btn">Add Question Manually</button>`;
+                
+                const questionsList = subjectDiv.querySelector('.questions-list');
+                (subjects[subjectName] || []).forEach((q, i) => {
+                    questionsList.appendChild(createQuestionElement(i, q));
+                });
+
+                subjectDiv.querySelector('.ai-generate-btn').onclick = (e) => generateWithAI(e.target);
+                subjectDiv.querySelector('.add-question-btn').onclick = (e) => addQuestion(e.target.closest('.subject-container'));
+                subjectDiv.querySelector('.remove-subject-btn').onclick = (e) => removeSubject(e.target.closest('.subject-container'));
+
+                container.appendChild(subjectDiv);
+            });
+        }
+        
+        function createQuestionElement(index, question = {}) {
+            const quiz = quizzesData[selectedQuizIndex];
+            const div = document.createElement('div');
+            div.className = 'question-container';
+            div.innerHTML = `
+                <h5>Question ${index + 1}</h5>
+                <label>Question Type:</label>
+                <select class="question-type">
+                    <option value="multiple-choice" ${question.type === 'multiple-choice' ? 'selected' : ''}>Multiple-Choice</option>
+                    <option value="fill-in-the-blank" ${question.type === 'fill-in-the-blank' ? 'selected' : ''}>Fill-in-the-Blank</option>
+                </select>
+                <label>Question Text:</label>
+                <textarea class="question-text" rows="2">${question.text || ''}</textarea>
+                <div class="answer-fields"></div>
+                ${quiz.marksMode === "custom" ? `
+                    <div class="flex-row">
+                        <div><label>Marks (Correct):</label><input type="number" class="question-correct-marks" value="${question.correctMarks ?? 1}"></div>
+                        <div><label>Marks (Wrong):</label><input type="number" class="question-wrong-marks" value="${question.wrongMarks ?? 0}"></div>
+                    </div>` : ''}
+                <button class="btn-remove remove-question-btn">Remove Question</button>`;
+
+            const select = div.querySelector('.question-type');
+            select.onchange = () => renderAnswerFields(div, select.value, question);
+            div.querySelector('.remove-question-btn').onclick = () => {
+                if(confirm('Are you sure you want to remove this question?')) {
+                    div.remove();
+                }
+            };
+
+            renderAnswerFields(div, select.value, question);
+            return div;
+        }
+
+        function renderAnswerFields(qContainer, type, question = {}) {
+            const container = qContainer.querySelector('.answer-fields');
+            if (type === 'multiple-choice') {
+                let optionsHTML = '';
+                const options = question.options || [{}, {}, {}, {}];
+                for (let i = 0; i < 4; i++) {
+                    const opt = options[i] || {};
+                    optionsHTML += `
+                    <div class="option-group">
+                        <label>Option ${i+1}:</label>
+                        <input type="text" class="option-text" placeholder="Option ${i+1} Text" value="${opt.text || ''}">
+                        <label>Solution/Explanation for Option ${i+1}:</label>
+                        <input type="text" class="option-solution" placeholder="Explain why this is correct/incorrect" value="${opt.solution || ''}">
+                    </div>`;
+                }
+                container.innerHTML = `
+                    <label>Options & Explanations:</label>${optionsHTML}
+                    <label>Correct Answer:</label>
+                    <select class="correct-answer-mc">
+                        ${[0,1,2,3].map(i => `<option value="${i}" ${question.correctAnswer == i ? 'selected':''}>Option ${i+1}</option>`).join('')}
+                    </select>`;
+            } else if (type === 'fill-in-the-blank') {
+                container.innerHTML = `<label>Correct Answers (use | to separate):</label>
+                    <input type="text" class="answer-key" value="${question.answerKey || ''}">`;
+            } else {
+                container.innerHTML = '';
+            }
+        }
+
+        // --- DATA HANDLING & LOGIC ---
+        function updateQuizObjectFromUI() {
+            const quiz = quizzesData[selectedQuizIndex];
+            if (!quiz) return;
+
+            quiz.title = document.getElementById('quiz-title').value;
+            quiz.timeLimit = parseInt(document.getElementById('quiz-time').value);
+            quiz.password = document.getElementById('quiz-password').value;
+            quiz.marksMode = document.getElementById('quiz-marks-mode').value;
+
+            if (quiz.marksMode === 'uniform') {
+                quiz.correctMarks = parseFloat(document.getElementById('quiz-correct-marks').value);
+                quiz.wrongMarks = parseFloat(document.getElementById('quiz-wrong-marks').value);
+            }
+
+            const newSubjects = {};
+            document.querySelectorAll('.subject-container').forEach(subDiv => {
+                const subjectName = subDiv.querySelector('.subject-name').value.trim();
+                if (!subjectName) return;
+                
+                newSubjects[subjectName] = [];
+                subDiv.querySelectorAll('.questions-list .question-container').forEach(qDiv => {
+                    const qType = qDiv.querySelector('.question-type').value;
+                    const question = {
+                        type: qType,
+                        text: qDiv.querySelector('.question-text').value
+                    };
+                    if (quiz.marksMode === 'custom') {
+                        question.correctMarks = parseFloat(qDiv.querySelector('.question-correct-marks').value || 1);
+                        question.wrongMarks = parseFloat(qDiv.querySelector('.question-wrong-marks').value || 0);
+                    }
+                    if (qType === 'multiple-choice') {
+                        question.options = [];
+                        qDiv.querySelectorAll('.option-group').forEach(optGroup => {
+                            const text = optGroup.querySelector('.option-text').value;
+                            const solution = optGroup.querySelector('.option-solution').value;
+                            question.options.push({ text, solution });
+                        });
+                        question.correctAnswer = parseInt(qDiv.querySelector('.correct-answer-mc').value);
+                    } else if (qType === 'fill-in-the-blank') {
+                        question.answerKey = qDiv.querySelector('.answer-key').value;
+                    }
+                    newSubjects[subjectName].push(question);
+                });
+            });
+            quiz.subjects = newSubjects;
+        }
+        
+        async function saveQuiz() {
+            const token = localStorage.getItem('adminToken');
+            if (!token) return alert('Please log in again.');
+            
+            updateQuizObjectFromUI();
+
+            const button = document.getElementById('btn-save-quiz');
+            button.textContent = 'Saving...';
+            button.disabled = true;
+            try {
+                const res = await fetch('/update-quizzes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify(quizzesData)
+                });
+                if (!res.ok) throw new Error('Failed to save exam.');
+                alert('Exam saved successfully!');
+                renderQuizList();
+            } catch (err) { alert(err.message); }
+            finally {
+                button.textContent = 'Save This Exam';
+                button.disabled = false;
+            }
+        }
+
+        function addQuiz() {
+            quizzesData.push({ id: Date.now() + Math.random(), title: "New Exam", timeLimit: 180, password: "changeme", marksMode: "uniform", subjects: {} });
+            selectedQuizIndex = quizzesData.length - 1;
+            renderQuizList();
+            renderQuizEditor();
+        }
+
+        function addSubject() {
+            const name = prompt("Enter new subject name:");
+            if (!name?.trim()) return;
+            updateQuizObjectFromUI();
+            if (quizzesData[selectedQuizIndex].subjects[name]) return alert("Subject already exists!");
+            quizzesData[selectedQuizIndex].subjects[name] = [];
+            renderQuizEditor();
+        }
+        
+        function removeSubject(subjectDiv) {
+            if (!confirm("Are you sure? This will remove the subject and all its questions.")) return;
+            subjectDiv.remove();
+            updateQuizObjectFromUI();
+            renderQuizEditor();
+        }
+
+        function addQuestion(subjectDiv) {
+            const list = subjectDiv.querySelector('.questions-list');
+            list.appendChild(createQuestionElement(list.children.length, {}));
+        }
+
+        // --- AI & IMAGE GENERATION ---
+        async function handleGeneratedQuestions(questions, subjectName = "New Subject") {
+            updateQuizObjectFromUI();
+            const quiz = quizzesData[selectedQuizIndex];
+            
+            if (!quiz.subjects[subjectName]) {
+                quiz.subjects[subjectName] = [];
+            }
+            quiz.subjects[subjectName].push(...questions);
+            
+            alert(`${questions.length} questions generated! Don't forget to save the exam.`);
+            renderQuizEditor();
+        }
+
+        async function generateWithAI(button) {
+            const subjectDiv = button.closest('.subject-container');
+            const token = localStorage.getItem('adminToken');
+            const topic = subjectDiv.querySelector('.ai-topic').value;
+            const numQuestions = parseInt(subjectDiv.querySelector('.ai-num-questions').value);
+            const questionType = subjectDiv.querySelector('.ai-question-type').value;
+            const difficulty = subjectDiv.querySelector('.ai-difficulty').value;
+
+            if (!topic) return alert('Please enter a topic to generate questions.');
+
+            button.textContent = 'Generating...';
+            button.disabled = true;
+
+            try {
+                const res = await fetch('/generate-questions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ topic, numQuestions, questionType, difficulty })
+                });
+                if (!res.ok) {
+                    const error = await res.json(); throw new Error(error.message || 'AI generation failed.');
+                }
+                const newQuestions = await res.json();
+                handleGeneratedQuestions(newQuestions, subjectDiv.querySelector('.subject-name').value);
+            } catch (err) { alert(err.message); }
+            finally {
+                button.textContent = 'Generate';
+                button.disabled = false;
+            }
+        }
+        
+        async function generateFromImage() {
+            const fileInput = document.getElementById('image-upload');
+            if (fileInput.files.length === 0) return alert('Please select an image or PDF file first.');
+            const file = fileInput.files[0];
+            const token = localStorage.getItem('adminToken');
+            const formData = new FormData();
+            formData.append('image', file);
+            
+            const button = document.getElementById('generate-from-file-btn');
+            button.textContent = 'Processing...';
+            button.disabled = true;
+
+            try {
+                const res = await fetch('/generate-from-image', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    body: formData
+                });
+                if (!res.ok) {
+                    const error = await res.json(); throw new Error(error.message || 'Image processing failed.');
+                }
+                const newQuestions = await res.json();
+                handleGeneratedQuestions(newQuestions, file.name.split('.')[0]);
+            } catch(err) { alert(`Error: ${err.message}`); }
+            finally {
+                button.textContent = 'Generate from File';
+                button.disabled = false;
+            }
+        }
+
+        async function startCamera() {
+            const preview = document.getElementById('camera-preview');
+            const captureBtn = document.getElementById('capture-btn');
+            try {
+                cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                preview.srcObject = cameraStream;
+                preview.style.display = 'block';
+                captureBtn.style.display = 'block';
+                await preview.play();
+            } catch (err) { alert('Could not access camera. Please grant permission.'); }
+        }
+
+        function captureAndGenerate() {
+            const preview = document.getElementById('camera-preview');
+            const canvas = document.createElement('canvas');
+            canvas.width = preview.videoWidth;
+            canvas.height = preview.videoHeight;
+            canvas.getContext('2d').drawImage(preview, 0, 0);
+
+            const captureBtn = document.getElementById('capture-btn');
+            captureBtn.textContent = 'Processing...';
+            captureBtn.disabled = true;
+            
+            canvas.toBlob(async (blob) => {
+                const token = localStorage.getItem('adminToken');
+                const formData = new FormData();
+                formData.append('image', blob, 'capture.png');
+
+                try {
+                    const res = await fetch('/generate-from-image', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` },
+                        body: formData
+                    });
+                    if (!res.ok) {
+                        const error = await res.json(); throw new Error(error.message || 'Image processing failed.');
+                    }
+                    const newQuestions = await res.json();
+                    handleGeneratedQuestions(newQuestions, "Camera Capture Subject");
+                } catch(err) { alert(`Error: ${err.message}`); }
+                finally {
+                    captureBtn.textContent = 'Capture & Generate';
+                    captureBtn.disabled = false;
+                    preview.style.display = 'none';
+                    captureBtn.style.display = 'none';
+                    if (cameraStream) {
+                        cameraStream.getTracks().forEach(track => track.stop());
+                    }
+                }
+            }, 'image/png');
+        }
+
+        // --- UTILITY FUNCTIONS ---
+        async function deleteQuiz() {
+            if (!confirm('Are you sure you want to permanently delete this exam?')) return;
+            const quiz = quizzesData[selectedQuizIndex];
+            const token = localStorage.getItem('adminToken');
+            if (!token) return alert('Please log in again.');
+            try {
+                const res = await fetch(`/delete-quiz/${quiz.id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!res.ok) throw new Error('Failed to delete exam.');
+                quizzesData.splice(selectedQuizIndex, 1);
+                selectedQuizIndex = Math.max(0, selectedQuizIndex - 1);
+                renderQuizList();
+                renderQuizEditor();
+                alert('Exam deleted successfully!');
+            } catch (err) { alert(err.message); }
+        }
+
+        function generatePDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            updateQuizObjectFromUI(); // Ensure data is current before generating
+            const quiz = quizzesData[selectedQuizIndex];
+            const pageHeight = doc.internal.pageSize.height;
+            const pageWidth = doc.internal.pageSize.width;
+            const margin = 15;
+            let y = 20;
+            let pageNumber = 1;
+
+            const addHeader = () => {
+                doc.setFontSize(18); doc.setFont(undefined, 'bold');
+                doc.text('Geetham Institutions', pageWidth / 2, y, { align: 'center' });
+                y += 8;
+                doc.setFontSize(14); doc.setFont(undefined, 'normal');
+                doc.text(quiz.title, pageWidth / 2, y, { align: 'center' });
+                y += 10;
+                doc.setLineWidth(0.5); doc.line(margin, y, pageWidth - margin, y);
+                y += 10;
+            };
+            const addFooter = () => doc.setFontSize(8).text(`Page ${pageNumber}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+            const checkPageBreak = (neededHeight) => {
+                if (y + neededHeight > pageHeight - 20) {
+                    addFooter(); doc.addPage(); pageNumber++; y = 20; addHeader();
+                }
+            };
+            
+            addHeader();
+            Object.keys(quiz.subjects).forEach(subject => {
+                checkPageBreak(18);
+                doc.setFontSize(14); doc.setFont(undefined, 'bold');
+                doc.text(`Subject: ${subject}`, margin, y); y += 10;
+                
+                quiz.subjects[subject].forEach((q, idx) => {
+                    doc.setFontSize(12); doc.setFont(undefined, 'normal');
+                    const questionText = doc.splitTextToSize(`${idx + 1}. ${q.text}`, pageWidth - (margin * 2));
+                    checkPageBreak(questionText.length * 6 + 10);
+                    doc.text(questionText, margin, y);
+                    y += (questionText.length * 5) + 2;
+
+                    if (q.type === 'multiple-choice') {
+                        q.options.forEach((opt, i) => {
+                            const optionText = doc.splitTextToSize(`(${String.fromCharCode(97 + i)}) ${opt.text}`, pageWidth - (margin * 2) - 10);
+                            checkPageBreak(optionText.length * 5 + 2);
+                            doc.text(optionText, margin + 5, y);
+                            y += (optionText.length * 5);
+                        });
+                    } else if (q.type === 'fill-in-the-blank') {
+                        checkPageBreak(12);
+                        doc.setFont(undefined, 'italic');
+                        doc.text('Answer: ____________________________', margin + 5, y);
+                        doc.setFont(undefined, 'normal');
+                        y += 7;
+                    }
+                     y += 8;
+                });
+            });
+            addFooter();
+            doc.save(`${quiz.title.replace(/\s+/g, '_')}_QuestionPaper.pdf`);
+        }
+    </script>
+</body>
+</html>

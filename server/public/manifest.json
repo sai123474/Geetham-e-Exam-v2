@@ -1,0 +1,21 @@
+{
+  "name": "Geetham e-Exam",
+  "short_name": "e-Exam",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0056b3",
+  "description": "Test platform for Geetham Educational Institutions.",
+  "icons": [
+    {
+      "src": "/geetham.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "/geetham.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}

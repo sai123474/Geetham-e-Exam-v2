@@ -1,0 +1,38 @@
+
+# Secret credentials file
+/server/.env
+
+# Local ChromaDB vector database (can be very large)
+/server/db/
+
+# Raw PDF books (can be very large)
+/data_processing/source_pdfs/
+
+# Generated report files
+accessibility-report.json
+
+
+# Dependencies
+/server/node_modules
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Build output
+dist
+build
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.swp
