@@ -45,7 +45,14 @@ const mongoClient = new MongoClient(MONGO_URI, {
 let db;
 
 // ChromaDB Client for the pre-processed knowledge base
-const chromaClient = new ChromaClient({ path: "/data" });
+const chromaClient = new ChromaClient({
+  path: "http://localhost:8000", // This is now a placeholder, the important part is below
+  fetchOptions: {
+    "chroma-server-host": "/data", // This tells it to use the local volume path
+    "chroma-server-ssl-enabled": false,
+    "chroma-server-auth-provider": "local"
+  }
+});
 let knowledgeCollection;
 
 const cache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
