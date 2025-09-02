@@ -45,7 +45,7 @@ const mongoClient = new MongoClient(MONGO_URI, {
 let db;
 
 // ChromaDB Client for the pre-processed knowledge base
-const chromaClient = new ChromaClient({ path: path.join(__dirname, 'db') });
+const chromaClient = new ChromaClient({ path: "/data" });
 let knowledgeCollection;
 
 const cache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
