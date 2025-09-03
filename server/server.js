@@ -56,7 +56,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 // --- MIDDLEWARE ---
 // More specific CORS configuration for production
 const corsOptions = {
-  origin: 'https://geetham-exam-app.onrender.com', // IMPORTANT: Use your actual Render URL here
+  origin: 'https://geetham-exam.onrender.com', // IMPORTANT: Use your actual Render URL here
   optionsSuccessStatus: 200
 };
 
