@@ -40,7 +40,7 @@ let db;
 const pinecone = new Pinecone({
     apiKey: PINECONE_API_KEY,
 });
-const pineconeIndex = pinecone.index('jee-books-384');
+const PINECONE_INDEX_NAME = pinecone.index('jee-books-384');
 
 // Local embedding model for queries
 let embedder;
