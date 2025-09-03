@@ -50,7 +50,13 @@ const questionRecommender = new QuestionRecommender();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // --- MIDDLEWARE ---
-app.use(cors());
+// More specific CORS configuration for production
+const corsOptions = {
+  origin: 'https://geetham-exam-app.onrender.com', // IMPORTANT: Use your actual Render URL here
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
