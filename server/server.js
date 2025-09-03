@@ -17,8 +17,12 @@ const NodeCache = require('node-cache');
 const { QuestionRecommender } = require('./ml/questionRecommender');
 
 // --- CONFIGURATION ---
+// server.js
+
 const app = express();
-const PORT = process.env.PORT || 3000;
+app.set('trust proxy', 1); // Add this line to trust Render's proxy
+
+const PORT = process.env.PORT || 8080;
 
 // Load from .env file
 const API_KEY = process.env.API_KEY;
